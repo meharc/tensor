@@ -1,0 +1,18 @@
+# Simple dependency graph.
+
+modules:
+    - name: A
+      version: 1.0
+      depends:
+        - B
+        - C
+    - name: D
+      version: 1.41.23
+      depends:
+        - C
+    - name: C
+      version: 0.99
+    - name: B
+      version: 2.3
+      depends:
+        - C
