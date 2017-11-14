@@ -31,8 +31,7 @@ LOG_FORMAT = '%(asctime)s [%(levelname)-5s] %(message)s'
 # Note: Codec/file extension are a "delicate" combination with OpenCV.
 # I have found the following codecs to work in Ubuntu 17.10, writing to an .mp4 file.
 # Change the below at your own risk.
-CODECS = ['MP4V', 'H264', 'MJPG', 'XVID', 'X264']
-EXT = '.mp4'
+CODECS = ['MPEG', 'MP4V', 'H264', 'MJPG', 'XVID', 'X264']
 
 
 def parse_args():
@@ -56,6 +55,10 @@ def parse_args():
 
     parser.add_argument('--codec', choices=CODECS, default='MP4V',
                         help="The chosen codec to encode the video, by default MP4")
+    parser.add_argument('--psi', type=float, default=0.7,
+                        help="Path thinning threshold")
+    parser.add_argument('--gamma', type=float, default=0.2,
+                        help="Actual to expected area ratio threshold")
 
     parser.add_argument('infile', help="The video file to process for FOM detection")
     return parser.parse_args()
@@ -154,7 +157,7 @@ def video_frames(video):
     while cap.isOpened():
         _, frame = cap.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        yield gray
+        yield gray, frame
     cap.release()
 
 
@@ -166,9 +169,11 @@ def main(options):
     writeout = False
     if options.outfile:
         writeout = True
-        outfile = os.path.splitext(options.outfile)[0] + EXT
+        outfile = options.outfile
         fourcc = cv2.VideoWriter_fourcc(*options.codec)
-        out_vid = cv2.VideoWriter(outfile, fourcc, 30.0, (1280, 720), False)
+        # TODO: Auto-detect shape of output video. If that is not set correctly,
+        #       nothing will be written out to the video file.
+        out_vid = cv2.VideoWriter(outfile, fourcc, 30.0, (1920, 1080), True)
 
     logging.info("Detecting FOMs in {infile} and writing out to {out} (using: {codec})".format(
         infile=options.infile,
@@ -180,27 +185,31 @@ def main(options):
     spinner = halo.Halo(text="Detecting FOM...", spinner='dots')
     spinner.start()
     try:
-        for frame in video_frames(options.infile):
+        for frame, color_frame in video_frames(options.infile):
             prev = current
             current = nxt
             nxt = frame
             if prev is None or current is None:
+                prev_color_frame = color_frame
                 continue
-            bounding_rect = detect_fom((current, prev, nxt))
+            bounding_rect = detect_fom((current, prev, nxt),
+                                       psi=options.psi,
+                                       gamma=options.gamma)
             if bounding_rect:
                 spinner.text = "Found another FOM"
-                cv2.rectangle(current, bounding_rect[0], bounding_rect[1], 127, 2)
+                cv2.rectangle(prev_color_frame, bounding_rect[0], bounding_rect[1], 127, 2)
 
-            cv2.imshow('processed', current)
+            cv2.imshow('Detecting FOM...', prev_color_frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
             if writeout:
-                out_vid.write(current)
+                out_vid.write(prev_color_frame)
+            prev_color_frame = color_frame
 
             frame_count += 1
-            if frame_count % 48 == 0:
-                spinner.text = "{} Frames processed".format(frame_count)
+            if frame_count % 30 == 0:
+                spinner.text = "Time: {} seconds".format(frame_count)
         spinner.succeed(text="Done")
     except KeyboardInterrupt:
         spinner.succeed(text="Interrupted by user")

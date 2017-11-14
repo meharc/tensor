@@ -1,4 +1,8 @@
 .ipynb*
 build/
+
+# Common video formats
 *.mov
+*.avi
+*.mp4
 
